@@ -7,25 +7,19 @@ import { Lock } from 'redlock';
 @Injectable()
 export default class NotificationScheduler {
   private readonly lockKey: string;
+  private readonly ttl: number;
 
   constructor(private readonly lockService: LockService) {
     this.lockKey = 'notification-scheduler-lock';
+    this.ttl = 12000;
   }
 
-  @Cron(CronExpression.EVERY_5_SECONDS)
+  @Cron('*/1 * * * * *')
   async noti() {
-    const lockAcquired = await this.lockService.setLock(this.lockKey, 10000);
-
-    if (lockAcquired) {
-      console.log('lockAcquired');
-      try {
-        console.log('send notification', new Date().getSeconds());
-        await this.lockService.delLock(this.lockKey);
-      } catch (error) {
-        console.error(error);
-      }
-    } else {
-      console.log('lock not Acquired');
-    }
+    try {
+      const lock = await this.lockService.setLock(this.lockKey, this.ttl);
+      console.log(new Date().getSeconds());
+      await this.lockService.delLock(lock);
+    } catch (err) {}
   }
 }
