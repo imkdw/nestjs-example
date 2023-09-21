@@ -1,31 +1,32 @@
 import { Injectable } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import LockService from '../lock/lock.service';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType } from './types/notification.enum';
-import { Lock } from 'redlock';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 
 @Injectable()
 export default class NotificationScheduler {
-  private readonly lockKey: string;
+  private readonly lockKey = 'notification-scheduler-lock';
+  constructor(
+    private readonly lockService: LockService,
+    @InjectQueue('notification') private notificationQueue: Queue,
+  ) {}
 
-  constructor(private readonly lockService: LockService) {
-    this.lockKey = 'notification-scheduler-lock';
-  }
+  @Cron('*/2 * * * * *')
+  async addJobs() {
+    const jobIds = Array.from({ length: 3 }, () => Math.floor(Math.random() * 999) + 1);
 
-  @Cron(CronExpression.EVERY_5_SECONDS)
-  async noti() {
-    const lockAcquired = await this.lockService.setLock(this.lockKey, 10000);
+    const now = new Date();
+    const [year, month, seconds] = [now.getFullYear(), now.getMonth(), now.getSeconds()];
+    const lockKeyWithDate = this.lockKey + `:${year}-${month}-${seconds}`;
+    const isLocked = await this.lockService.setLock(lockKeyWithDate, 1000);
 
-    if (lockAcquired) {
-      console.log('lockAcquired');
-      try {
-        console.log('send notification', new Date().getSeconds());
-        await this.lockService.delLock(this.lockKey);
-      } catch (error) {
-        console.error(error);
-      }
-    } else {
-      console.log('lock not Acquired');
+    if (isLocked) {
+      await this.notificationQueue.add({
+        id: lockKeyWithDate,
+        jobIds,
+      });
+      await this.lockService.delLock(lockKeyWithDate);
     }
   }
 }
